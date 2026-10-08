@@ -1,0 +1,24 @@
+{
+  "name": "DriftList",
+  "short_name": "DriftList",
+  "description": "A calm task list with priorities, reminders, custom colors, and sync.",
+  "start_url": "./driftlist.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f6f2",
+  "theme_color": "#176c70",
+  "icons": [
+    {
+      "src": "./assets/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./assets/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}

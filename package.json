@@ -1,0 +1,43 @@
+{
+  "name": "driftlist",
+  "version": "1.1.0",
+  "description": "A calm task-list app with priorities, reminders, custom colors, drag-and-drop, and sync",
+  "main": "electron/main.cjs",
+  "author": "Christopher Carter",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build:portable": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.christophercarter.driftlist",
+    "productName": "DriftList",
+    "files": [
+      "driftlist.html",
+      "app.css",
+      "app.js",
+      "config.js",
+      "manifest.webmanifest",
+      "sw.js",
+      "assets/**/*",
+      "electron/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "assets/icon-512.png",
+      "artifactName": "DriftList-Portable-${version}.${ext}"
+    },
+    "portable": {
+      "requestExecutionLevel": "user"
+    }
+  }
+}

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f7f6f2">
+  <meta name="description" content="A small, calm task list with priorities, reminders, custom colors, and cloud sync.">
+  <title>DriftList</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./assets/icon-192.png">
+  <link rel="preconnect" href="https://api.fontshare.com">
+  <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./app.css">
+  <script src="./config.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to tasks</a>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand" aria-label="DriftList">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M7 9.5h11.5a6.5 6.5 0 0 1 0 13H14"/><path d="m7 17 4 4 7-8"/></svg>
+        <span>DriftList</span>
+      </div>
+      <div class="top-actions">
+        <button id="syncButton" class="icon-button sync-button" type="button" aria-label="Sync now" title="Sync now"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-5V2"/><path d="M20 7a8 8 0 1 0 1.3 8"/></svg></button>
+        <button id="pinButton" class="icon-button" type="button" aria-label="Keep window on top" title="Keep window on top"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 4 6 6-3 1-4 4-1 5-2-2-2-2-2-2 5-1 4-4z"/><path d="m4 20 5-5"/></svg></button>
+        <button id="appearanceButton" class="icon-button" type="button" aria-label="Color scheme settings" title="Color scheme settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z"/></svg></button>
+        <button id="accountButton" class="avatar-button" type="button" aria-label="Account and cloud sync" title="Account and cloud sync">C</button>
+      </div>
+    </header>
+
+    <nav class="list-tabs" aria-label="Task lists">
+      <div id="listTabs" class="tab-scroll"></div>
+      <button id="addListButton" class="add-list" type="button" aria-label="Add a list" title="Add a list"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+    </nav>
+
+    <main id="main" class="main-content">
+      <section class="list-heading" aria-labelledby="listTitle">
+        <div><p id="eyebrow" class="eyebrow">PERSONAL LIST</p><h1 id="listTitle">Inbox</h1></div>
+        <button id="manageListButton" class="text-button" type="button">Edit list</button>
+      </section>
+
+      <form id="taskForm" class="quick-add">
+        <label class="sr-only" for="taskInput">Add a task</label>
+        <input id="taskInput" name="task" maxlength="240" autocomplete="off" placeholder="What needs doing?" required>
+        <button type="submit" aria-label="Add task"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+      </form>
+
+      <div class="view-switch" role="tablist" aria-label="Task status">
+        <button id="activeViewButton" class="view-button is-active" type="button" role="tab" aria-selected="true">Active <span id="activeCount">0</span></button>
+        <button id="doneViewButton" class="view-button" type="button" role="tab" aria-selected="false">Completed <span id="doneCount">0</span></button>
+      </div>
+
+      <section id="taskRegion" aria-live="polite" aria-busy="false">
+        <ul id="taskList" class="task-list" role="list" aria-label="Tasks"></ul>
+        <div id="emptyState" class="empty-state" hidden>
+          <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M17 33 27 43 48 20"/><path d="M52 32a20 20 0 1 1-8-16"/></svg>
+          <h2 id="emptyTitle">A clear list</h2><p id="emptyText">Add one small thing above. You can check it off when it’s done.</p>
+          <button id="emptyAction" class="primary-button" type="button">Add a task</button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="statusbar">
+      <button id="cloudStatus" type="button" class="status-action"><span class="status-dot is-local"></span><span>Saved on this device</span></button>
+      <span id="shortcutHint" class="shortcut-hint">Drag to reorder or move</span>
+    </footer>
+  </div>
+
+  <div id="listModal" class="modal-backdrop" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="listModalTitle">
+      <div class="modal-header"><h2 id="listModalTitle">New list</h2><button class="icon-button modal-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <form id="listForm">
+        <label for="listName">List name</label><input id="listName" maxlength="60" autocomplete="off" required>
+        <fieldset class="color-field"><legend>Tab color</legend><div id="newListColors" class="color-options"></div></fieldset>
+        <div class="modal-actions"><button class="secondary-button modal-cancel" type="button">Cancel</button><button class="primary-button" type="submit">Save list</button></div>
+      </form>
+    </section>
+  </div>
+
+  <div id="manageModal" class="modal-backdrop" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="manageModalTitle">
+      <div class="modal-header"><h2 id="manageModalTitle">Edit list</h2><button class="icon-button modal-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <form id="manageForm">
+        <label for="manageListName">List name</label><input id="manageListName" maxlength="60" autocomplete="off" required>
+        <fieldset class="color-field"><legend>Tab color</legend><div id="manageListColors" class="color-options"></div></fieldset>
+        <div class="modal-actions split-actions"><button id="deleteListButton" class="danger-button" type="button">Delete list</button><div><button class="secondary-button modal-cancel" type="button">Cancel</button><button class="primary-button" type="submit">Save</button></div></div>
+      </form>
+    </section>
+  </div>
+
+  <div id="appearanceModal" class="modal-backdrop" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="appearanceTitle">
+      <div class="modal-header"><div><p class="eyebrow">APPEARANCE</p><h2 id="appearanceTitle">Color scheme</h2></div><button class="icon-button modal-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <fieldset class="setting-group"><legend>Brightness</legend><div id="themeOptions" class="segmented-control">
+        <button type="button" data-theme-choice="system">System</button><button type="button" data-theme-choice="light">Light</button><button type="button" data-theme-choice="dark">Dark</button>
+      </div></fieldset>
+      <fieldset class="setting-group"><legend>Accent color</legend><div id="accentOptions" class="color-options color-options-large"></div></fieldset>
+      <div class="modal-actions"><button class="primary-button modal-close" type="button">Done</button></div>
+    </section>
+  </div>
+
+  <div id="accountModal" class="modal-backdrop" hidden>
+    <section class="modal account-modal" role="dialog" aria-modal="true" aria-labelledby="accountTitle">
+      <div class="modal-header"><div><p class="eyebrow">CLOUD SYNC</p><h2 id="accountTitle">Your account</h2></div><button class="icon-button modal-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <div id="localModeMessage" class="notice"><strong>Local mode is ready.</strong><span>To sync across devices, add your Supabase details to <code>config.js</code>. The setup guide walks you through it.</span></div>
+      <form id="authForm"><label for="emailInput">Email</label><input id="emailInput" type="email" autocomplete="email" required><label for="passwordInput">Password</label><input id="passwordInput" type="password" minlength="6" autocomplete="current-password" required><p id="authMessage" class="form-message" aria-live="polite"></p><div class="auth-actions"><button id="signUpButton" class="secondary-button" type="button">Create account</button><button class="primary-button" type="submit">Sign in</button></div></form>
+      <div id="signedInPanel" hidden><p>Signed in as <strong id="signedInEmail"></strong>.</p><div class="modal-actions"><button id="signOutButton" class="secondary-button" type="button">Sign out</button><button id="syncPanelButton" class="primary-button" type="button">Sync now</button></div></div>
+    </section>
+  </div>
+
+  <div id="editTaskModal" class="modal-backdrop" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="editTaskTitle">
+      <div class="modal-header"><h2 id="editTaskTitle">Edit task</h2><button class="icon-button modal-close" type="button" aria-label="Close"><svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <form id="editTaskForm">
+        <label for="editTaskInput">Task</label><input id="editTaskInput" maxlength="240" required>
+        <label class="toggle-row" for="priorityInput"><span><strong>Priority</strong><small>Highlight and embolden this task</small></span><input id="priorityInput" type="checkbox" role="switch"></label>
+        <label for="moveTaskList">List</label><select id="moveTaskList"></select>
+        <label for="reminderInput">Reminder</label><input id="reminderInput" type="datetime-local">
+        <div class="reminder-actions"><button id="clearReminderButton" class="text-button" type="button">Clear reminder</button><span id="reminderHelp">Alerts require notification permission.</span></div>
+        <div class="modal-actions split-actions"><button id="deleteTaskButton" class="danger-button" type="button">Delete</button><div><button class="secondary-button modal-cancel" type="button">Cancel</button><button class="primary-button" type="submit">Save</button></div></div>
+      </form>
+    </section>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
