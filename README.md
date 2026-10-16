@@ -1,26 +1,20 @@
-# DriftList
+# DriftList 2.0
 
-A small, calm task/list app inspired by the free-floating utility described by its owner. It supports multiple lists, active/completed views, local-first storage, Supabase account sync, an installable PWA for phones, and a resizable Electron portable app for Windows.
+A calm, installable task manager for the browser, Android PWA, and Windows desktop.
 
-Start with **SETUP-GUIDE.md**. No programming experience is assumed.
+## Version 2.0 highlights
 
-## Important files
+- Touch-and-hold drag reordering on Android, plus drag-to-tab task moves
+- Visible list-color swatches and full-surface accent themes
+- Priority highlighting and improved toolbar icons
+- New tasks appear at the top
+- Clear all completed tasks in the current list
+- Move tasks between lists from Edit task
+- Automatic cloud writes and Supabase Realtime refresh while signed in
+- Improved service-worker notifications while the app is open/backgrounded
+- Clear pinned-window indicator in the Windows app
 
-- `driftlist.html` — app screen
-- `app.js` — task, list, account, and sync behavior
-- `app.css` — responsive light/dark design
-- `supabase-setup.sql` — secure cloud tables and per-user policies
-- `config.js` — paste the Supabase Project URL and publishable key here
-- `package.json` — Windows build commands
-- `.github/workflows/build-windows.yml` — optional cloud build
+See `SETUP-GUIDE.md` for local, cloud, Android, and Windows setup.
 
-## Version 1.1 additions
 
-- System, light, and dark color schemes with six accent choices
-- Individually colored list tabs
-- Priority task highlighting
-- Drag-and-drop task reordering and movement between list tabs
-- Task movement from the edit dialog (touch-friendly fallback)
-- Optional per-task reminders while the app is open
-
-Existing local data is migrated automatically. Existing Supabase users should run `supabase-setup.sql` again once to add the new sync columns.
+Windows shortcut icon: use `assets/driftlist-icon.ico` for your desktop shortcut or packaged Electron build.

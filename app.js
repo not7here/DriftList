@@ -12,7 +12,7 @@
     addList:$('#addListButton'),manageList:$('#manageListButton'),listModal:$('#listModal'),listForm:$('#listForm'),listName:$('#listName'),newListColors:$('#newListColors'),manageModal:$('#manageModal'),manageForm:$('#manageForm'),manageListName:$('#manageListName'),manageListColors:$('#manageListColors'),deleteList:$('#deleteListButton'),
     appearanceButton:$('#appearanceButton'),appearanceModal:$('#appearanceModal'),themeOptions:$('#themeOptions'),accentOptions:$('#accentOptions'),
     accountButton:$('#accountButton'),accountModal:$('#accountModal'),authForm:$('#authForm'),email:$('#emailInput'),password:$('#passwordInput'),authMessage:$('#authMessage'),signUp:$('#signUpButton'),signedInPanel:$('#signedInPanel'),signedInEmail:$('#signedInEmail'),signOut:$('#signOutButton'),syncPanel:$('#syncPanelButton'),localMode:$('#localModeMessage'),
-    editModal:$('#editTaskModal'),editForm:$('#editTaskForm'),editInput:$('#editTaskInput'),priorityInput:$('#priorityInput'),moveTaskList:$('#moveTaskList'),reminderInput:$('#reminderInput'),clearReminder:$('#clearReminderButton'),reminderHelp:$('#reminderHelp'),deleteTask:$('#deleteTaskButton'),
+    editModal:$('#editTaskModal'),editForm:$('#editTaskForm'),editInput:$('#editTaskInput'),priorityInput:$('#priorityInput'),moveTaskList:$('#moveTaskList'),reminderInput:$('#reminderInput'),clearReminder:$('#clearReminderButton'),reminderHelp:$('#reminderHelp'),deleteTask:$('#deleteTaskButton'),clearCompleted:$('#clearCompletedButton'),
     cloudStatus:$('#cloudStatus'),syncButton:$('#syncButton'),pinButton:$('#pinButton'),toast:$('#toast'),taskRegion:$('#taskRegion')
   };
   let data=migrateData(loadData());
@@ -26,6 +26,7 @@
   let reminderTimer=null;
   let isPinned=false;
   let draggingTaskId=null;
+  let realtimeChannel=null;let remoteRefreshTimer=null;let touchDrag=null;let syncInFlight=0;let suppressRemoteEventsUntil=0;let lastSyncText='';
   let appearance=loadAppearance();
 
   function loadData(){
@@ -41,13 +42,13 @@
   function loadAppearance(){
     try{const saved=JSON.parse(localStorage.getItem(APPEARANCE_KEY));return {theme:['system','light','dark'].includes(saved?.theme)?saved.theme:'system',accent:ACCENTS.includes(saved?.accent)?saved.accent:'teal'}}catch(_error){return {theme:'system',accent:'teal'}}
   }
-  function persist({sync=true}={}){localStorage.setItem(STORAGE_KEY,JSON.stringify(data));scheduleReminders();if(sync&&currentUser){clearTimeout(syncTimer);syncTimer=setTimeout(syncToCloud,500)}}
+  function persist({sync=true}={}){localStorage.setItem(STORAGE_KEY,JSON.stringify(data));scheduleReminders();if(sync&&currentUser){clearTimeout(syncTimer);setCloudStatus(navigator.onLine?'syncing':'error',navigator.onLine?'Saving…':'Changes queued offline');syncTimer=setTimeout(syncToCloud,180)}}
   function now(){return new Date().toISOString()}
   function escapeHtml(value){return String(value).replace(/[&<>'"]/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[char]))}
   function activeLists(){return data.lists.filter(list=>!list.deleted_at)}
   function selectedList(){return activeLists().find(list=>list.id===selectedListId)||activeLists()[0]}
   function showToast(message){els.toast.textContent=message;els.toast.hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>els.toast.hidden=true,2800)}
-  function setCloudStatus(mode,text){const dot=els.cloudStatus.querySelector('.status-dot');dot.className=`status-dot is-${mode}`;els.cloudStatus.querySelector('span:last-child').textContent=text}
+  function setCloudStatus(mode,text){lastSyncText=text;const dot=els.cloudStatus.querySelector('.status-dot');dot.className=`status-dot is-${mode}`;els.cloudStatus.querySelector('span:last-child').textContent=text}
   function visibleTasks(listId=selectedListId,status=view){return data.tasks.filter(task=>task.list_id===listId&&!task.deleted_at&&(status==='done'?task.completed:!task.completed)).sort(taskSort)}
   function taskSort(a,b){return (a.sort_order??0)-(b.sort_order??0)||new Date(b.updated_at)-new Date(a.updated_at)}
   function colorOptions(selected,name){return LIST_COLORS.map(color=>`<label class="color-choice" title="${color}"><input type="radio" name="${name}" value="${color}" ${color===selected?'checked':''}><span class="color-swatch color-${color}" aria-hidden="true"></span><span class="sr-only">${color}</span></label>`).join('')}
@@ -62,7 +63,7 @@
     const active=all.filter(task=>!task.completed);const done=all.filter(task=>task.completed);
     els.activeCount.textContent=active.length;els.doneCount.textContent=done.length;
     els.activeBtn.classList.toggle('is-active',view==='active');els.doneBtn.classList.toggle('is-active',view==='done');
-    els.activeBtn.setAttribute('aria-selected',view==='active');els.doneBtn.setAttribute('aria-selected',view==='done');
+    els.activeBtn.setAttribute('aria-selected',view==='active');els.doneBtn.setAttribute('aria-selected',view==='done');els.clearCompleted.hidden=view!=='done'||done.length===0;
     const tasks=visibleTasks();
     els.taskList.innerHTML=tasks.map(task=>{
       const reminder=reminderText(task);
@@ -78,9 +79,10 @@
     updateAppearanceControls();
   }
 
-  function addTask(title){const clean=title.trim();if(!clean)return;const order=visibleTasks(selectedListId,'active').length;data.tasks.push({id:crypto.randomUUID(),list_id:selectedListId,title:clean,completed:false,priority:false,reminder_at:null,reminder_notified:false,sort_order:order,created_at:now(),updated_at:now(),deleted_at:null});persist();render();els.taskInput.value=''}
+  function addTask(title){const clean=title.trim();if(!clean)return;visibleTasks(selectedListId,'active').forEach(task=>{task.sort_order=(task.sort_order??0)+1;task.updated_at=now()});const order=0;data.tasks.push({id:crypto.randomUUID(),list_id:selectedListId,title:clean,completed:false,priority:false,reminder_at:null,reminder_notified:false,sort_order:order,created_at:now(),updated_at:now(),deleted_at:null});persist();render();els.taskInput.value=''}
   function toggleTask(id){const task=data.tasks.find(item=>item.id===id);if(!task)return;task.completed=!task.completed;task.sort_order=visibleTasks(task.list_id,task.completed?'done':'active').length;task.updated_at=now();persist();render();showToast(task.completed?'Task completed':'Task returned to active')}
   function togglePriority(id){const task=data.tasks.find(item=>item.id===id);if(!task)return;task.priority=!task.priority;task.updated_at=now();persist();render();showToast(task.priority?'Marked as priority':'Priority removed')}
+  function clearCompleted(){const stamp=now();const completed=data.tasks.filter(task=>task.list_id===selectedListId&&task.completed&&!task.deleted_at);if(!completed.length)return;completed.forEach(task=>{task.deleted_at=stamp;task.updated_at=stamp});persist();render();showToast(`${completed.length} completed ${completed.length===1?'task':'tasks'} cleared`)}
   function softDeleteTask(id){const task=data.tasks.find(item=>item.id===id);if(!task)return;task.deleted_at=now();task.updated_at=now();persist();closeModals();render();showToast('Task deleted')}
   function normalizeOrder(listId,status){visibleTasks(listId,status).forEach((task,index)=>{task.sort_order=index;task.updated_at=now()})}
   function reorderTask(taskId,targetId,after=false){
@@ -89,7 +91,7 @@
     let ordered=visibleTasks(target.list_id,target.completed?'done':'active').filter(item=>item.id!==task.id);let index=ordered.findIndex(item=>item.id===target.id);ordered.splice(index+(after?1:0),0,task);
     ordered.forEach((item,i)=>{item.sort_order=i;item.updated_at=now()});normalizeOrder(oldList,oldStatus);persist();selectedListId=target.list_id;view=target.completed?'done':'active';render()
   }
-  function moveTaskToList(taskId,listId){const task=data.tasks.find(item=>item.id===taskId);if(!task||task.list_id===listId)return;const oldList=task.list_id;const status=task.completed?'done':'active';task.list_id=listId;task.sort_order=visibleTasks(listId,status).length;task.updated_at=now();normalizeOrder(oldList,status);persist();render();showToast(`Moved to ${activeLists().find(list=>list.id===listId)?.name||'list'}`)}
+  function moveTaskToList(taskId,listId){const task=data.tasks.find(item=>item.id===taskId);if(!task||task.list_id===listId)return;const oldList=task.list_id;const status=task.completed?'done':'active';task.list_id=listId;visibleTasks(listId,status).forEach(item=>{item.sort_order=(item.sort_order??0)+1;item.updated_at=now()});task.sort_order=0;task.updated_at=now();normalizeOrder(oldList,status);persist();render();showToast(`Moved to ${activeLists().find(list=>list.id===listId)?.name||'list'}`)}
   function openTaskEditor(taskId){
     const task=data.tasks.find(item=>item.id===taskId);if(!task)return;editingTaskId=taskId;els.editInput.value=task.title;els.priorityInput.checked=task.priority;els.moveTaskList.innerHTML=activeLists().sort((a,b)=>a.sort_order-b.sort_order).map(list=>`<option value="${list.id}" ${list.id===task.list_id?'selected':''}>${escapeHtml(list.name)}</option>`).join('');els.reminderInput.value=toLocalInput(task.reminder_at);els.clearReminder.hidden=!task.reminder_at;updateReminderHelp();openModal(els.editModal,els.editInput)
   }
@@ -106,9 +108,10 @@
   function toLocalInput(value){if(!value)return '';const date=new Date(value);if(Number.isNaN(date.getTime()))return '';const local=new Date(date.getTime()-date.getTimezoneOffset()*60000);return local.toISOString().slice(0,16)}
   function updateReminderHelp(){if(!('Notification'in window))els.reminderHelp.textContent='System notifications are unavailable here; in-app alerts still work.';else if(Notification.permission==='denied')els.reminderHelp.textContent='Notifications are blocked; in-app alerts still work.';else els.reminderHelp.textContent='The app must be open for reliable alerts.'}
   async function requestNotificationPermission(){if(!('Notification'in window)||Notification.permission!=='default')return;try{await Notification.requestPermission()}catch(_error){}updateReminderHelp()}
+  async function showSystemNotification(title,options){try{if(navigator.serviceWorker?.controller){await navigator.serviceWorker.ready;(await navigator.serviceWorker.getRegistration())?.showNotification(title,options);return true}new Notification(title,options);return true}catch(_error){return false}}
   function notifyTask(task){
     const list=activeLists().find(item=>item.id===task.list_id);const body=list?`${list.name}: ${task.title}`:task.title;
-    if('Notification'in window&&Notification.permission==='granted'){try{new Notification('DriftList reminder',{body,icon:'./assets/icon-192.png',tag:`driftlist-${task.id}`})}catch(_error){showToast(`Reminder: ${task.title}`)}}else showToast(`Reminder: ${task.title}`);
+    if('Notification'in window&&Notification.permission==='granted'){showSystemNotification('DriftList reminder',{body,icon:'./assets/icon-192.jpg',badge:'./assets/icon-192.jpg',tag:`driftlist-${task.id}`,renotify:true}).then(shown=>{if(!shown)showToast(`Reminder: ${task.title}`)})}else showToast(`Reminder: ${task.title}`);
     task.reminder_notified=true;task.updated_at=now();persist()
   }
   function checkReminders(){const stamp=Date.now();data.tasks.filter(task=>!task.deleted_at&&!task.completed&&task.reminder_at&&!task.reminder_notified&&new Date(task.reminder_at).getTime()<=stamp).forEach(notifyTask)}
@@ -119,14 +122,21 @@
   els.listTabs.addEventListener('dragover',event=>{const tab=event.target.closest('[data-list-id]');if(!tab||!draggingTaskId)return;event.preventDefault();tab.classList.add('is-drop-target')});
   els.listTabs.addEventListener('dragleave',event=>event.target.closest('[data-list-id]')?.classList.remove('is-drop-target'));
   els.listTabs.addEventListener('drop',event=>{const tab=event.target.closest('[data-list-id]');if(!tab||!draggingTaskId)return;event.preventDefault();els.listTabs.querySelectorAll('.is-drop-target').forEach(item=>item.classList.remove('is-drop-target'));moveTaskToList(draggingTaskId,tab.dataset.listId);draggingTaskId=null});
-  els.activeBtn.addEventListener('click',()=>{view='active';render()});els.doneBtn.addEventListener('click',()=>{view='done';render()});
+  els.activeBtn.addEventListener('click',()=>{view='active';render()});els.doneBtn.addEventListener('click',()=>{view='done';render()});els.clearCompleted.addEventListener('click',clearCompleted);
   els.emptyAction.addEventListener('click',()=>{if(view==='done'){view='active';render()}else els.taskInput.focus()});
   els.taskList.addEventListener('change',event=>{const item=event.target.closest('[data-task-id]');if(item&&event.target.classList.contains('task-check'))toggleTask(item.dataset.taskId)});
   els.taskList.addEventListener('click',event=>{const item=event.target.closest('[data-task-id]');if(!item)return;if(event.target.closest('.priority-button'))togglePriority(item.dataset.taskId);else if(event.target.closest('.task-menu'))openTaskEditor(item.dataset.taskId)});
+  function clearDragStyles(){document.querySelectorAll('.is-drop-target,.drop-before,.drop-after,.is-dragging').forEach(item=>item.classList.remove('is-drop-target','drop-before','drop-after','is-dragging'))}
+  function dragTargetAt(x,y){const node=document.elementFromPoint(x,y);const tab=node?.closest?.('[data-list-id]');if(tab)return {tab};const item=node?.closest?.('[data-task-id]');if(item&&item.dataset.taskId!==draggingTaskId)return {item,after:y>item.getBoundingClientRect().top+item.offsetHeight/2};return {}}
+  function markDragTarget(target){document.querySelectorAll('.is-drop-target,.drop-before,.drop-after').forEach(item=>item.classList.remove('is-drop-target','drop-before','drop-after'));if(target.tab)target.tab.classList.add('is-drop-target');if(target.item)target.item.classList.add(target.after?'drop-after':'drop-before')}
+  function beginTouchDrag(event){if(event.pointerType==='mouse'||event.button!==0)return;const handle=event.target.closest('.drag-handle');const item=handle?.closest('[data-task-id]');if(!item)return;touchDrag={pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,x:event.clientX,y:event.clientY,item,timer:setTimeout(()=>{if(!touchDrag)return;draggingTaskId=item.dataset.taskId;item.classList.add('is-dragging');handle.setPointerCapture?.(event.pointerId);if(navigator.vibrate)navigator.vibrate(25)},240)};}
+  function moveTouchDrag(event){if(!touchDrag||event.pointerId!==touchDrag.pointerId)return;touchDrag.x=event.clientX;touchDrag.y=event.clientY;if(!draggingTaskId){if(Math.hypot(event.clientX-touchDrag.startX,event.clientY-touchDrag.startY)>10){clearTimeout(touchDrag.timer);touchDrag=null}return}event.preventDefault();markDragTarget(dragTargetAt(event.clientX,event.clientY));}
+  function endTouchDrag(event){if(!touchDrag||event.pointerId!==touchDrag.pointerId)return;clearTimeout(touchDrag.timer);if(draggingTaskId){event.preventDefault();const target=dragTargetAt(touchDrag.x,touchDrag.y);if(target.tab)moveTaskToList(draggingTaskId,target.tab.dataset.listId);else if(target.item)reorderTask(draggingTaskId,target.item.dataset.taskId,target.after)}clearDragStyles();draggingTaskId=null;touchDrag=null;}
+  els.taskList.addEventListener('pointerdown',beginTouchDrag);els.taskList.addEventListener('pointermove',moveTouchDrag,{passive:false});els.taskList.addEventListener('pointerup',endTouchDrag);els.taskList.addEventListener('pointercancel',endTouchDrag);
   els.taskList.addEventListener('dragstart',event=>{const item=event.target.closest('[data-task-id]');if(!item)return;draggingTaskId=item.dataset.taskId;item.classList.add('is-dragging');event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',draggingTaskId)});
-  els.taskList.addEventListener('dragend',event=>{event.target.closest('[data-task-id]')?.classList.remove('is-dragging');document.querySelectorAll('.is-drop-target,.drop-before,.drop-after').forEach(item=>item.classList.remove('is-drop-target','drop-before','drop-after'));draggingTaskId=null});
-  els.taskList.addEventListener('dragover',event=>{const item=event.target.closest('[data-task-id]');if(!item||!draggingTaskId||item.dataset.taskId===draggingTaskId)return;event.preventDefault();const after=event.clientY>item.getBoundingClientRect().top+item.offsetHeight/2;els.taskList.querySelectorAll('.drop-before,.drop-after').forEach(row=>row.classList.remove('drop-before','drop-after'));item.classList.add(after?'drop-after':'drop-before')});
-  els.taskList.addEventListener('drop',event=>{const item=event.target.closest('[data-task-id]');if(!item||!draggingTaskId)return;event.preventDefault();const after=event.clientY>item.getBoundingClientRect().top+item.offsetHeight/2;reorderTask(draggingTaskId,item.dataset.taskId,after);draggingTaskId=null});
+  els.taskList.addEventListener('dragend',()=>{clearDragStyles();draggingTaskId=null});
+  els.taskList.addEventListener('dragover',event=>{const item=event.target.closest('[data-task-id]');if(!item||!draggingTaskId||item.dataset.taskId===draggingTaskId)return;event.preventDefault();markDragTarget({item,after:event.clientY>item.getBoundingClientRect().top+item.offsetHeight/2})});
+  els.taskList.addEventListener('drop',event=>{const item=event.target.closest('[data-task-id]');if(!item||!draggingTaskId)return;event.preventDefault();reorderTask(draggingTaskId,item.dataset.taskId,event.clientY>item.getBoundingClientRect().top+item.offsetHeight/2);draggingTaskId=null});
 
   els.newListColors.innerHTML=colorOptions('blue','new-list-color');els.manageListColors.innerHTML=colorOptions('teal','manage-list-color');els.accentOptions.innerHTML=accentOptions();
   els.addList.addEventListener('click',()=>{els.listName.value='';els.newListColors.innerHTML=colorOptions(LIST_COLORS[activeLists().length%LIST_COLORS.length],'new-list-color');openModal(els.listModal,els.listName)});
@@ -148,29 +158,47 @@
   document.querySelectorAll('.modal-backdrop').forEach(backdrop=>backdrop.addEventListener('mousedown',event=>{if(event.target===backdrop)closeModals()}));
   document.addEventListener('keydown',event=>{if(event.key==='Escape')closeModals();if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='n'){event.preventDefault();els.taskInput.focus()}});
 
-  els.pinButton.addEventListener('click',async()=>{if(!window.driftDesktop){showToast('Always-on-top is available in the Windows app');return}isPinned=await window.driftDesktop.setAlwaysOnTop(!isPinned);els.pinButton.classList.toggle('is-active',isPinned);showToast(isPinned?'Window pinned on top':'Window unpinned')});
-  window.driftDesktop?.getAlwaysOnTop().then(value=>{isPinned=value;els.pinButton.classList.toggle('is-active',value)});
+  els.pinButton.addEventListener('click',async()=>{if(!window.driftDesktop){showToast('Always-on-top is available in the Windows app');return}isPinned=await window.driftDesktop.setAlwaysOnTop(!isPinned);els.pinButton.classList.toggle('is-active',isPinned);els.pinButton.setAttribute('aria-pressed',isPinned);els.pinButton.title=isPinned?'Unpin window':'Keep window on top';showToast(isPinned?'Window pinned on top':'Window unpinned')});
+  window.driftDesktop?.getAlwaysOnTop().then(value=>{isPinned=value;els.pinButton.classList.toggle('is-active',value);els.pinButton.setAttribute('aria-pressed',value);els.pinButton.title=value?'Unpin window':'Keep window on top'});
 
   function cloudConfigured(){const config=window.DRIFTLIST_CONFIG||{};return config.supabaseUrl&&!config.supabaseUrl.startsWith('YOUR_')&&config.supabaseAnonKey&&!config.supabaseAnonKey.startsWith('YOUR_')}
   async function initCloud(){if(!cloudConfigured()||!window.supabase){setCloudStatus('local','Saved on this device');return}supabaseClient=window.supabase.createClient(window.DRIFTLIST_CONFIG.supabaseUrl,window.DRIFTLIST_CONFIG.supabaseAnonKey);const {data:{session}}=await supabaseClient.auth.getSession();setUser(session?.user||null);supabaseClient.auth.onAuthStateChange((_event,session)=>{setUser(session?.user||null);if(session?.user)syncFromCloud()});if(currentUser)await syncFromCloud()}
-  function setUser(user){currentUser=user;els.localMode.hidden=Boolean(supabaseClient);els.authForm.hidden=Boolean(user);els.signedInPanel.hidden=!user;if(user){els.signedInEmail.textContent=user.email;els.accountButton.textContent=user.email.slice(0,1).toUpperCase();setCloudStatus('online','Cloud sync on')}else{els.accountButton.textContent='C';setCloudStatus('local',supabaseClient?'Sign in to sync':'Saved on this device')}render()}
+  function setUser(user){currentUser=user;if(user)subscribeRealtime();else unsubscribeRealtime();els.localMode.hidden=Boolean(supabaseClient);els.authForm.hidden=Boolean(user);els.signedInPanel.hidden=!user;if(user){els.signedInEmail.textContent=user.email;els.accountButton.textContent=user.email.slice(0,1).toUpperCase();setCloudStatus('online','Cloud sync on')}else{els.accountButton.textContent='C';setCloudStatus('local',supabaseClient?'Sign in to sync':'Saved on this device')}render()}
   async function handleAuth(mode){if(!supabaseClient){els.authMessage.textContent='Cloud sync is not configured yet. Open SETUP-GUIDE.md.';return}els.authMessage.textContent='Working…';const credentials={email:els.email.value.trim(),password:els.password.value};const result=mode==='signup'?await supabaseClient.auth.signUp(credentials):await supabaseClient.auth.signInWithPassword(credentials);if(result.error){els.authMessage.textContent=result.error.message;return}els.authMessage.textContent=mode==='signup'&&!result.data.session?'Check your email to confirm your account.':'Signed in.'}
   els.accountButton.addEventListener('click',()=>openModal(els.accountModal,currentUser?null:els.email));els.cloudStatus.addEventListener('click',()=>openModal(els.accountModal,currentUser?null:els.email));
   els.authForm.addEventListener('submit',event=>{event.preventDefault();handleAuth('signin')});els.signUp.addEventListener('click',()=>handleAuth('signup'));els.signOut.addEventListener('click',()=>supabaseClient?.auth.signOut());els.syncPanel.addEventListener('click',syncFromCloud);els.syncButton.addEventListener('click',()=>currentUser?syncFromCloud():openModal(els.accountModal,els.email));
+  function unsubscribeRealtime(){if(realtimeChannel&&supabaseClient)supabaseClient.removeChannel(realtimeChannel);realtimeChannel=null}
+  function subscribeRealtime(){if(!supabaseClient||!currentUser||realtimeChannel)return;realtimeChannel=supabaseClient.channel(`driftlist-${currentUser.id}`).on('postgres_changes',{event:'*',schema:'public',table:'lists',filter:`user_id=eq.${currentUser.id}`},queueRemoteRefresh).on('postgres_changes',{event:'*',schema:'public',table:'tasks',filter:`user_id=eq.${currentUser.id}`},queueRemoteRefresh).subscribe()}
+  function queueRemoteRefresh(){if(Date.now()<suppressRemoteEventsUntil)return;clearTimeout(remoteRefreshTimer);remoteRefreshTimer=setTimeout(()=>syncFromCloud({pushAfter:false,silent:true}),500)}
   async function syncToCloud(){
-    if(!supabaseClient||!currentUser)return;setCloudStatus('syncing','Syncing…');els.syncButton.classList.add('is-spinning');
-    const lists=data.lists.map(list=>({...list,user_id:currentUser.id}));const tasks=data.tasks.map(task=>({...task,user_id:currentUser.id}));
-    const listResult=await supabaseClient.from('lists').upsert(lists,{onConflict:'id'});const taskResult=tasks.length?await supabaseClient.from('tasks').upsert(tasks,{onConflict:'id'}):{error:null};
-    els.syncButton.classList.remove('is-spinning');if(listResult.error||taskResult.error){setCloudStatus('error','Sync problem');showToast((listResult.error||taskResult.error).message);return}setCloudStatus('online','Synced just now')
+    if(!supabaseClient||!currentUser||syncInFlight)return;syncInFlight++;setCloudStatus('syncing','Syncing…');els.syncButton.classList.add('is-spinning');
+    try{
+      const lists=data.lists.map(list=>({...list,user_id:currentUser.id}));const tasks=data.tasks.map(task=>({...task,user_id:currentUser.id}));
+      suppressRemoteEventsUntil=Date.now()+3000;
+      const listResult=await supabaseClient.from('lists').upsert(lists,{onConflict:'id'});const taskResult=tasks.length?await supabaseClient.from('tasks').upsert(tasks,{onConflict:'id'}):{error:null};
+      if(listResult.error||taskResult.error){setCloudStatus('error','Sync problem');showToast((listResult.error||taskResult.error).message);return}
+      setCloudStatus('online','Synced just now')
+    }finally{
+      syncInFlight=Math.max(0,syncInFlight-1);
+      els.syncButton.classList.remove('is-spinning');
+    }
   }
   function mergeByUpdatedAt(localRows,remoteRows){const merged=new Map();[...remoteRows,...localRows].forEach(row=>{const prior=merged.get(row.id);if(!prior||new Date(row.updated_at)>=new Date(prior.updated_at))merged.set(row.id,row)});return [...merged.values()]}
-  async function syncFromCloud(){
-    if(!supabaseClient||!currentUser)return;setCloudStatus('syncing','Syncing…');els.syncButton.classList.add('is-spinning');els.taskRegion.setAttribute('aria-busy','true');
-    const [listResult,taskResult]=await Promise.all([supabaseClient.from('lists').select('*').order('sort_order'),supabaseClient.from('tasks').select('*')]);
-    if(listResult.error||taskResult.error){els.syncButton.classList.remove('is-spinning');els.taskRegion.setAttribute('aria-busy','false');setCloudStatus('error','Sync problem');showToast((listResult.error||taskResult.error).message);return}
-    const remoteLists=(listResult.data||[]).map(({user_id,...list})=>list);const remoteTasks=(taskResult.data||[]).map(({user_id,...task})=>task);data=migrateData({lists:mergeByUpdatedAt(data.lists,remoteLists),tasks:mergeByUpdatedAt(data.tasks,remoteTasks)});persist({sync:false});selectedListId=activeLists().some(list=>list.id===selectedListId)?selectedListId:activeLists()[0]?.id;render();await syncToCloud();els.taskRegion.setAttribute('aria-busy','false')
+  async function syncFromCloud({pushAfter=true,silent=false}={}){
+    if(!supabaseClient||!currentUser||syncInFlight)return;syncInFlight++;if(!silent)setCloudStatus('syncing','Syncing…');els.syncButton.classList.add('is-spinning');els.taskRegion.setAttribute('aria-busy','true');
+    try{
+      const [listResult,taskResult]=await Promise.all([supabaseClient.from('lists').select('*').order('sort_order'),supabaseClient.from('tasks').select('*')]);
+      if(listResult.error||taskResult.error){setCloudStatus('error','Sync problem');showToast((listResult.error||taskResult.error).message);return}
+      const remoteLists=(listResult.data||[]).map(({user_id,...list})=>list);const remoteTasks=(taskResult.data||[]).map(({user_id,...task})=>task);
+      data=migrateData({lists:mergeByUpdatedAt(data.lists,remoteLists),tasks:mergeByUpdatedAt(data.tasks,remoteTasks)});persist({sync:false});selectedListId=activeLists().some(list=>list.id===selectedListId)?selectedListId:activeLists()[0]?.id;render();
+      if(pushAfter)await syncToCloud();else setCloudStatus('online',silent&&lastSyncText==='Syncing…'?'Cloud sync on':'Cloud sync on');
+    }finally{
+      syncInFlight=Math.max(0,syncInFlight-1);
+      els.syncButton.classList.remove('is-spinning');
+      els.taskRegion.setAttribute('aria-busy','false');
+    }
   }
-  window.addEventListener('online',()=>currentUser&&syncFromCloud());window.addEventListener('focus',checkReminders);document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkReminders()});
+  window.addEventListener('online',()=>currentUser&&syncFromCloud());window.addEventListener('offline',()=>currentUser&&setCloudStatus('error','Changes queued offline'));window.addEventListener('focus',checkReminders);document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkReminders()});
   if('serviceWorker'in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
   applyAppearance();render();scheduleReminders();initCloud();
 })();

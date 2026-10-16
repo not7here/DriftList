@@ -44,3 +44,15 @@ alter table public.lists add column if not exists color text not null default 't
 alter table public.tasks add column if not exists priority boolean not null default false;
 alter table public.tasks add column if not exists reminder_at timestamptz;
 alter table public.tasks add column if not exists reminder_notified boolean not null default false;
+
+
+-- Enable live updates for open DriftList installations. Safe to run repeatedly.
+do $$
+begin
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'lists') then
+    alter publication supabase_realtime add table public.lists;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'tasks') then
+    alter publication supabase_realtime add table public.tasks;
+  end if;
+end $$;
